@@ -228,7 +228,7 @@ argo-workflows:
         values: ['control-plane']
 
 crossplane:
-  enabled: true
+  enabled: false
   chartName: crossplane
   namespace: crossplane-system
   releaseName: crossplane
@@ -241,7 +241,7 @@ crossplane:
         values: ['control-plane']
 
 crossplane-upbound-providers:
-  enabled: true
+  enabled: false
   chartName: crossplane-aws-upbound
   namespace: crossplane-system
   releaseName: crossplane-upbound-providers
@@ -254,7 +254,7 @@ crossplane-upbound-providers:
         values: ['control-plane']
 
 crossplane-compositions:
-  enabled: true
+  enabled: false
   namespace: crossplane-system
   type: manifest
   path: packages/crossplane-compositions
