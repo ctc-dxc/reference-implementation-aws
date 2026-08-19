@@ -55,7 +55,12 @@ spec:
       action: catalog:register
       input:
         repoContentsUrl: ${{ steps['publish'].output.repoContentsUrl }}
-        catalogInfoPath: 'catalog-info.yaml'
+        # 先頭スラッシュが必須。`catalog-info.yaml`（スラッシュ無し）だと repoContentsUrl との
+        # 結合に失敗し、GitHub URL reader が **パスではなく ref クエリ**として解釈する:
+        #   https://api.github.com/repos/<org>/<repo>/contents/?ref=catalog-info.yaml → 404
+        # Gitea reader では露見しなかったため upstream はスラッシュ無しのまま残っていた
+        # （GitHub 前提の app-with-bucket は元から '/catalog-info.yaml' になっている）。
+        catalogInfoPath: '/catalog-info.yaml'
 
   output:
     links:
