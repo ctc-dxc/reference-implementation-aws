@@ -328,7 +328,11 @@ spec:
               fi
 
               # Download kubectl
-              curl -sS -LO "https://dl.k8s.io/release/v1.28.3//bin/linux/amd64/kubectl"
+              # URL に `//` があると 404（GCS が NoSuchKey を返す）。実測: 247 バイトの
+              # XML エラーが kubectl として保存され、後段で
+              # "./kubectl: line 1: syntax error" という無関係なメッセージで落ちる。
+              # -f を付けて HTTP エラーで即座に失敗させる（set -e が効く）。
+              curl -sSfLO "https://dl.k8s.io/release/v1.28.3/bin/linux/amd64/kubectl"
               chmod +x kubectl
               
               echo "creating client scopes"
