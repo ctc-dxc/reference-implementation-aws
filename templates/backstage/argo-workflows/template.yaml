@@ -11,16 +11,7 @@ spec:
     - title: Configuration Options
       required:
         - name
-        - githubOwner
       properties:
-        githubOwner:
-          type: string
-          title: あなたの GitHub ユーザー名
-          description: >-
-            生成されるリポジトリの admin 権限を付与する GitHub アカウント（作成者本人）。
-            GitHub App が作ったリポジトリは作成者に権限が付かないため、ここで明示的に付与する。
-            org ctc-dxc のメンバーである必要がある。
-          default: tranminhnat
         name:
           type: string
           description: name of this application
@@ -54,14 +45,23 @@ spec:
         repoUrl: github.com?owner=ctc-dxc&repo=${{parameters.name}}
         repoVisibility: private
         defaultBranch: main
-        # ctc-dxc: 作成者本人に admin を付与する。
-        # これを付けないと GitHub App（codespire-backstage-dev）が作ったリポジトリに対して
-        # 作成者は org の base 権限（read のみ）しか持たず、**自分で削除できない**
-        # （org 設定 `members_can_delete_repositories` は true なので、足りないのは repo の admin だけ）。
+        # ctc-dxc: GitHub App が作ったリポジトリには**作成者に権限が付かない**ため、
+        # 人間側は org の base 権限（read のみ）しか持たず自分で削除できない。
+        # ここで admin を明示的に付与する（org 設定 `members_can_delete_repositories` は true なので
+        # repo の admin さえあれば削除できる）。
+        #
         # 実装は `"user" in collaborator` で分岐するのでキーは `user`（`username` ではない）。
-        # チーム単位にしたい場合は `- team: <team-slug>` に置き換える。
+        # `@backstage/plugin-scaffolder-backend-module-github` 0.4.0 で確認。
+        #
+        # **チームを増やすときはここを team 指定へ変える**のが本筋:
+        #   collaborators:
+        #     - team: <team-slug>          # org に team を作りメンバーを入れる
+        #       access: admin
+        # そうすれば人が増えてもテンプレートを触らずに済む
+        # （`members_can_create_teams` は true なので team は作れる）。
+        # 現状は利用者が 1 名なので固定指定にしている。
         collaborators:
-          - user: ${{parameters.githubOwner}}
+          - user: tranminhnat
             access: admin
     - id: create-argocd-app
       name: Create ArgoCD App
