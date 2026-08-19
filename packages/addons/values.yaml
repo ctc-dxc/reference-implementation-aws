@@ -48,7 +48,7 @@ aws-load-balancer-controller:
   valuesObject:
     serviceAccount:
       name:  "aws-load-balancer-controller"
-    # vpcId: '{{.metadata.annotations.aws_vpc_id}}'
+    vpcId: '{{ .metadata.annotations.aws_vpc_id }}'
     clusterName: '{{ .metadata.labels.clusterName }}'
   ignoreDifferences:
     - kind: Secret
