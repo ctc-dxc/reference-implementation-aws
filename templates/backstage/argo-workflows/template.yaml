@@ -11,7 +11,16 @@ spec:
     - title: Configuration Options
       required:
         - name
+        - githubOwner
       properties:
+        githubOwner:
+          type: string
+          title: あなたの GitHub ユーザー名
+          description: >-
+            生成されるリポジトリの admin 権限を付与する GitHub アカウント（作成者本人）。
+            GitHub App が作ったリポジトリは作成者に権限が付かないため、ここで明示的に付与する。
+            org ctc-dxc のメンバーである必要がある。
+          default: tranminhnat
         name:
           type: string
           description: name of this application
@@ -45,6 +54,15 @@ spec:
         repoUrl: github.com?owner=ctc-dxc&repo=${{parameters.name}}
         repoVisibility: private
         defaultBranch: main
+        # ctc-dxc: 作成者本人に admin を付与する。
+        # これを付けないと GitHub App（codespire-backstage-dev）が作ったリポジトリに対して
+        # 作成者は org の base 権限（read のみ）しか持たず、**自分で削除できない**
+        # （org 設定 `members_can_delete_repositories` は true なので、足りないのは repo の admin だけ）。
+        # 実装は `"user" in collaborator` で分岐するのでキーは `user`（`username` ではない）。
+        # チーム単位にしたい場合は `- team: <team-slug>` に置き換える。
+        collaborators:
+          - user: ${{parameters.githubOwner}}
+            access: admin
     - id: create-argocd-app
       name: Create ArgoCD App
       action: cnoe:create-argocd-app
