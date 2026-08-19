@@ -14,9 +14,28 @@ extraObjects:
         privateKeySecretRef:
           name: letsencrypt-prod
         solvers:
-          - http01:
-              ingress:
-                ingressClassName: nginx
+          # HTTP-01 から DNS-01（Route53）へ変更。
+          #
+          # 理由: HTTP-01 は cert-manager 自身が
+          # http://<domain>/.well-known/acme-challenge/... へ self check を投げるが、
+          # 公開エントリポイントが NLB（ingress-nginx の Service type LoadBalancer）で
+          # あるため、NLB の背後にいる Pod から同じ NLB の**パブリック IP** へは
+          # 到達できない（AWS の hairpin 制約）。実測では DNS 解決は成功し HTTP が
+          # context deadline exceeded でタイムアウトし続け、self check が永久に通らない。
+          # Let's Encrypt 側の検証は外部から来るので通る可能性はあるが、cert-manager は
+          # 自分の self check が通るまで LE へ検証を依頼しないため詰む。
+          #
+          # DNS-01 なら self check が DNS 参照になり hairpin を踏まない。加えて、
+          # 将来 ALB に mTLS を掛ける場合 HTTP-01 は原理的に通らない（LE は
+          # クライアント証明書を提示できない）ので、DNS-01 が唯一の選択肢になる。
+          #
+          # 認可: cert-manager の ServiceAccount は EKS Pod Identity で
+          # dev ゾーン限定の route53:ChangeResourceRecordSets を持つ（terraform irsa.tf）。
+          # 明示的な鍵は不要（ambient credential を使う）。
+          - dns01:
+              route53:
+                region: '{{ .Values.global.awsRegion }}'
+                hostedZoneID: '{{ .Values.global.route53HostedZoneId }}'
   - |
     {{ if eq .Values.global.pathRouting "true"}}
     # This resource is to create default certificate of the base domain
