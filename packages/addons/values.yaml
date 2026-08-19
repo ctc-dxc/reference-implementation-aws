@@ -128,6 +128,21 @@ cert-manager:
       # DNS-01（Route53）solver 用。external-dns と同じ annotation 経由で受け取る。
       route53HostedZoneId: '{{ .metadata.annotations.route53_hosted_zone_id }}'
       awsRegion: '{{ .metadata.annotations.aws_region }}'
+    # DNS-01 の伝播チェックを再帰リゾルバ経由にする。
+    #
+    # 理由: 既定では cert-manager が**権威ネームサーバへ直接** port 53 を叩くが、
+    # 当環境のノード SG は DNS egress を VPC 内（10.32.0.0/16）に限定しているため
+    # 外部権威 NS へ到達できず `dial tcp 205.251.195.199:53: i/o timeout` で
+    # 伝播チェックが永久に失敗する（実測）。TXT レコード自体は Route53 に
+    # 正しく作成されているので権限の問題ではない。
+    #
+    # egress を 0.0.0.0/0 へ開けるのではなく、クラスタ DNS（CoreDNS・EKS 既定の
+    # サービス IP）を再帰リゾルバとして使う。CoreDNS は VPC リゾルバへ forward するので
+    # 公開ゾーンの TXT を解決できる。ハードニング（DNS egress の VPC 限定）は維持する。
+    # 注: CoreDNS の cache は 30 秒なので伝播確認が最大 30 秒遅れる（許容）。
+    extraArgs:
+      - --dns01-recursive-nameservers-only
+      - --dns01-recursive-nameservers=172.20.0.10:53
   selector:
     matchExpressions:
       - key: environment
