@@ -239,7 +239,13 @@ spec:
             name: keycloak-config-job
       containers:
         - name: keycloak-config
-          image: docker.io/library/ubuntu:22.04
+          # ubuntu:22.04 から alpine へ変更（実行時 apt install が port 80 を要求するため）。
+          # 当環境のノード SG は egress を 443 / 8443 に限定しており archive.ubuntu.com:80 へ
+          # 到達できない。ubuntu:22.04 は ca-certificates を含まないため apt を HTTPS に
+          # 切り替える回避も成立しない（イメージ層を実測して確認）。
+          # alpine は ca-certificates を含み /etc/apk/repositories が既定で https なので
+          # 443 のみで apk が動く。egress の緩和は行わない。
+          image: docker.io/library/alpine:3.20
           volumeMounts:
             - name: config-payloads
               readOnly: true
@@ -247,12 +253,12 @@ spec:
           envFrom:
             - secretRef:
                 name: keycloak-config
-          command: ["/bin/bash", "-c"]
+          command: ["/bin/sh", "-c"]
           args:
             - |
-              #! /bin/bash
+              #! /bin/sh
               set -ex -o pipefail
-              apt -qq update && apt -qq install curl jq gettext-base -y
+              apk add --no-cache curl jq gettext
               
               # Define helper functions
               keycloak_post() {
