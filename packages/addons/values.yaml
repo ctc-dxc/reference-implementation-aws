@@ -139,6 +139,20 @@ keycloak:
   defaultVersion: "24.7.3"
   chartRepository: "https://charts.bitnami.com/bitnami"
   valuesObject:
+    # Bitnami が 2025-08 に docker.io/bitnami/* の公開配布を終了したため、
+    # chart が pin する docker.io/bitnami/keycloak:26.2.5-debian-12-r1 は 404 になる（実測）。
+    # 既存タグは bitnamilegacy/* にアーカイブされているのでそちらを指す。
+    # allowInsecureImages は chart 側の「公式イメージ以外を弾く」検査を解除するために必須
+    # （既定 false のままだと repository を差し替えても chart が起動を拒否する）。
+    # 恒久対応は公式 quay.io/keycloak/keycloak への移行だが、chart ごと変わるため別途検討する。
+    global:
+      security:
+        allowInsecureImages: true
+    image:
+      repository: bitnamilegacy/keycloak
+    postgresql:
+      image:
+        repository: bitnamilegacy/postgresql
     httpRelativePath: '/{{ if eq .metadata.labels.path_routing "true" }}keycloak/{{ end }}'
     ingress:
       hostname: '{{ if eq .metadata.labels.path_routing "false" }}keycloak.{{ .metadata.annotations.domain }}{{ else }}{{ .metadata.annotations.domain }}{{ end }}'

@@ -119,8 +119,17 @@ backstage:
               password: ${ARGOCD_ADMIN_PASSWORD}
     argoWorkflows:
       baseUrl: ${ARGO_WORKFLOWS_URL}
+# Bitnami が 2025-08 に docker.io/bitnami/* の公開配布を終了したため、backstage chart の
+# postgresql サブチャートが pin するイメージも 404 になる（keycloak と同根・実測）。
+# global は親 values の top-level に置く必要がある（サブチャートへ継承されるため）。
+global:
+  security:
+    allowInsecureImages: true
+
 postgresql:
   enabled: true
+  image:
+    repository: bitnamilegacy/postgresql
   auth:
     username: "backstage"
     existingSecret: "backstage-env-vars"
