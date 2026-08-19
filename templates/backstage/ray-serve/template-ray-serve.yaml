@@ -29,11 +29,18 @@ spec:
           name: ${{parameters.name}}
           rayServeFile:  ${{parameters.rayServeFile}}
     - id: publish
-      name: Publishing to a gitea git repository
-      action: publish:gitea
+      name: Publishing to a GitHub repository
+      action: publish:github
+      # ctc-dxc 向けの読み替え（upstream は local kind 前提）:
+      # upstream は Gitea（`cnoe.localtest.me:8443`＝127.0.0.1 に解決する local 専用ホスト）へ push する。
+      # 本環境は **Gitea を導入しておらず**、Backstage の integrations も `github.com` の 1 件だけなので
+      # そのままでは `No matching integration configuration for host cnoe.localtest.me:8443` で落ちる。
+      # よって publish 先を GitHub App（`codespire-backstage-dev`・org ctc-dxc）に切り替える。
+      # repoVisibility は private 固定（生成物が public org リポジトリとして露出しないようにする）。
       input:
         description: This is an Ray Serve app Repo
-        repoUrl: cnoe.localtest.me:8443/gitea?repo=${{parameters.name}}
+        repoUrl: github.com?owner=ctc-dxc&repo=${{parameters.name}}
+        repoVisibility: private
         defaultBranch: main
     - id: create-argocd-app
       name: Create ArgoCD App
@@ -43,7 +50,7 @@ spec:
         appNamespace: ray
         argoInstance: in-cluster
         projectName: default
-        repoUrl: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{parameters.name}}
+        repoUrl: https://github.com/ctc-dxc/${{parameters.name}}
         path: "manifests"
     - id: register
       name: Register

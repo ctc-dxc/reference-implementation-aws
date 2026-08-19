@@ -14,7 +14,8 @@ metadata:
     apache-spark.cnoe.io/label-selector: env=dev,entity-id=${{values.name}}
     apache-spark.cnoe.io/cluster-name: local
   links:
-    - url: https://github.com/cnoe-punkwalker
+    # ctc-dxc: upstream 作者の個人 org が固定されていたので自組織のリポジトリ URL に是正。
+    - url: https://github.com/ctc-dxc/${{values.name}}
       title: Repo URL
       icon: github
 spec:
@@ -31,7 +32,7 @@ metadata:
   annotations:
     backstage.io/techdocs-ref: dir:.
   links:
-    - url: https://github.com/cnoe-punkwalker/my-reference-implementation-aws
+    - url: https://github.com/ctc-dxc/reference-implementation-aws
       title: CNOE Repo
       icon: github
 spec:

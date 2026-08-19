@@ -30,12 +30,20 @@ spec:
           name: ${{parameters.name}}
 
     - id: publish
-      name: Publishing to a gitea git repository
-      action: publish:gitea
+      name: Publishing to a GitHub repository
+      action: publish:github
+      # ctc-dxc 向けの読み替え（upstream は local kind 前提）:
+      # upstream は Gitea（`cnoe.localtest.me:8443`＝127.0.0.1 に解決する local 専用ホスト）へ push する。
+      # 本環境は **Gitea を導入しておらず**、Backstage の integrations も `github.com` の 1 件だけなので
+      # そのままでは `No matching integration configuration for host cnoe.localtest.me:8443` で落ちる。
+      # よって publish 先を GitHub App（`codespire-backstage-dev`・org ctc-dxc）に切り替える。
+      # repoVisibility は private 固定（生成物が public org リポジトリとして露出しないようにする）。
+      # 加えて upstream は owner が `cnoe-punkwalker`（upstream 作者の個人 org）に固定されていた。
+      # action は gitea なのに URL は GitHub という不整合もあったので、両方まとめて是正する。
       input:
         description: This is an example app
-        # Hard coded value for this demo purposes only.
-        repoUrl: https://github.com/cnoe-punkwalker/${{parameters.name}}
+        repoUrl: github.com?owner=ctc-dxc&repo=${{parameters.name}}
+        repoVisibility: private
         defaultBranch: main
     - id: create-argocd-app
       name: Create ArgoCD App
@@ -46,7 +54,7 @@ spec:
         argoInstance: in-cluster
         projectName: default
         # necessary until we generate our own cert
-        repoUrl: https://github.com/cnoe-punkwalker/${{parameters.name}}
+        repoUrl: https://github.com/ctc-dxc/${{parameters.name}}
         path: "manifests"
     - id: register
       name: Register

@@ -10,7 +10,9 @@ metadata:
     backstage.io/kubernetes-namespace: default
     argocd/app-name: ${{values.name | dump}}
   links:
-    - url: https://cnoe.localtest.me:8443/gitea
+    # ctc-dxc: upstream は local Gitea を指していた。publish 先を GitHub へ変えたので追随する。
+    # remoteUrl は publish の後でしか確定しないが、owner 固定＋repo 名＝name なので組み立てられる。
+    - url: https://github.com/ctc-dxc/${{values.name}}
       title: Repo URL
       icon: github
 spec:
