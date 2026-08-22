@@ -14,6 +14,12 @@ argocd:
       ingress:
         annotations: 
           cert-manager.io/cluster-issuer: '{{ if eq .metadata.labels.path_routing "false" }}letsencrypt-prod{{ end }}'
+          # ctc-dxc: 入口を Terraform 管理 ALB へ切り替えるため、DNS レコードの所有権を
+          # external-dns から Terraform へ移す（要件 v2.3 / NET-04）。
+          # external-dns は --policy=upsert-only --interval=2m で稼働しており、
+          # このアノテーションが無いと **2 分で A レコードを旧 NLB へ upsert し直し、
+          # mTLS が黙って迂回される**。値が "dns-controller" 以外なら external-dns は無視する。
+          external-dns.alpha.kubernetes.io/controller: none
         path: '/{{ if eq .metadata.labels.path_routing "true" }}argocd{{ end }}'
     configs:
       cm:
@@ -76,6 +82,11 @@ ingress-nginx:
   releaseName: ingress-nginx
   defaultVersion: "4.7.0"
   chartRepository: "https://kubernetes.github.io/ingress-nginx"
+  # ctc-dxc: TargetGroupBinding（Terraform 管理 ALB のターゲット登録）を配るために
+  # manifests ディレクトリを追加ソースにする。要件 v2.3 / NET-04。
+  additionalResources:
+  - manifestPath: "manifests"
+    type: "manifests"
   selector:
     matchExpressions:
       - key: environment
@@ -176,6 +187,10 @@ keycloak:
       hostname: '{{ if eq .metadata.labels.path_routing "false" }}keycloak.{{ .metadata.annotations.domain }}{{ else }}{{ .metadata.annotations.domain }}{{ end }}'
       annotations: 
         cert-manager.io/cluster-issuer: '{{ if eq .metadata.labels.path_routing "false" }}letsencrypt-prod{{ end }}'
+        # ctc-dxc: 要件 v2.3 / NET-04。理由は argocd の同アノテーションのコメントを参照。
+        # **4 つの Ingress すべてに付ける**必要がある（どれが TXT ownership の
+        # owner になるかは external-dns の処理順で決まるため）。
+        external-dns.alpha.kubernetes.io/controller: none
       extraTls:
       - hosts:
         - '{{ if eq .metadata.labels.path_routing "false" }}keycloak.{{ .metadata.annotations.domain }}{{ else }}{{ .metadata.annotations.domain }}{{ end }}'
@@ -213,6 +228,8 @@ backstage:
       host: '{{ if eq .metadata.labels.path_routing "false" }}backstage.{{ .metadata.annotations.domain }}{{ else }}{{ .metadata.annotations.domain }}{{ end }}'
       annotations: 
         cert-manager.io/cluster-issuer: '{{ if eq .metadata.labels.path_routing "false" }}letsencrypt-prod{{ end }}'
+        # ctc-dxc: 要件 v2.3 / NET-04。理由は argocd の同アノテーションのコメントを参照。
+        external-dns.alpha.kubernetes.io/controller: none
     backstage:
       appConfig:
         catalog:
@@ -266,6 +283,8 @@ argo-workflows:
         annotations: 
           cert-manager.io/cluster-issuer: '{{ if eq .metadata.labels.path_routing "false" }}letsencrypt-prod{{ end }}'
           nginx.ingress.kubernetes.io/rewrite-target: '{{ if eq .metadata.labels.path_routing "true" }}/$2{{ end }}'
+          # ctc-dxc: 要件 v2.3 / NET-04。理由は argocd の同アノテーションのコメントを参照。
+          external-dns.alpha.kubernetes.io/controller: none
         hosts:
         - '{{ if eq .metadata.labels.path_routing "true" }}{{ .metadata.annotations.domain }}{{ else }}argo-workflows.{{ .metadata.annotations.domain }}{{ end }}'
         paths: 
