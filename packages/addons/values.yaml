@@ -199,12 +199,23 @@ keycloak:
     # 由来で port を持たないため :443 へ飛び、Netskope に落ちて ERR_CONNECTION_CLOSED に
     # なっていた（discovery を実測して確認）。
     #
-    # 【なぜ backchannel-dynamic が要るか】hostname を :8443 の固定 URL にすると
-    # token_endpoint 等も :8443 になり **クラスタ内から呼べなくなる**（split-horizon DNS で
-    # ingress-nginx へ向くが Service は 80/443 しか持たない・chart 4.7.0 に extraPorts は無い）。
-    # hostname-backchannel-dynamic=true は「frontend は静的・backchannel は request 由来」に
-    # 分ける公式オプションで、docs の "Set to true if your application accesses Keycloak via a
-    # private network" がまさにこの構成（upstream 実装 HostnameV2ProviderFactory.java で確認）。
+    # 【なぜ backchannel は動的にしないか・2026-08-23 の実測】当初 `KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true`
+    # を入れて「frontend は静的・backchannel は request 由来」に分けたが、**実測で壊れていた**:
+    #
+    #   token_endpoint  http://dev.codespire.ctcnative.com/keycloak/.../token   ← scheme が http
+    #   jwks_uri        http://dev.codespire.ctcnative.com/keycloak/.../certs
+    #
+    # 動的解決は scheme も request から取る。この chart は `proxyHeaders: "forwarded"`＝
+    # **RFC 7239 の `Forwarded` ヘッダ**を信頼する設定だが、ingress-nginx が送るのは
+    # `X-Forwarded-*` なので Keycloak には信頼できるヘッダが届かず、TLS 終端後の生の
+    # scheme（http）が採用される。サーバ側のトークン交換が平文 URL へ向かうため、
+    # ingress-nginx の https リダイレクトに依存する脆い形になる（POST のリダイレクトは
+    # 追随しないクライアントもある）。
+    #
+    # よって **全 URL を静的な :8443 に統一する**。クラスタ内から :8443 で到達できるよう
+    # 80/443/8443 を持つ Service（ingress-nginx/manifests/service-public-ports.yaml）を置き、
+    # split-horizon DNS の rewrite 先をそちらへ向けてある（cn-codespire 側 Terraform）。
+    # scheme も port も 1 つに固定され、proxy ヘッダの解釈に依存しなくなる。
     #
     # 【上書きが効く理由】KEYCLOAK_HOSTNAME は chart が envFrom（ConfigMap keycloak-env-vars）で
     # 渡しており、extraEnvVars は explicit env になる。Kubernetes では explicit env が envFrom に
@@ -215,8 +226,6 @@ keycloak:
     extraEnvVars:
     - name: KEYCLOAK_HOSTNAME
       value: 'https://{{ if eq .metadata.labels.path_routing "false" }}keycloak.{{ .metadata.annotations.domain }}{{ else }}{{ .metadata.annotations.domain }}{{ end }}:8443/{{ if eq .metadata.labels.path_routing "true" }}keycloak/{{ end }}'
-    - name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC
-      value: 'true'
     httpRelativePath: '/{{ if eq .metadata.labels.path_routing "true" }}keycloak/{{ end }}'
     ingress:
       hostname: '{{ if eq .metadata.labels.path_routing "false" }}keycloak.{{ .metadata.annotations.domain }}{{ else }}{{ .metadata.annotations.domain }}{{ end }}'
