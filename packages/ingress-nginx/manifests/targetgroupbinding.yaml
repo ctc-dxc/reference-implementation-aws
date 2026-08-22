@@ -1,0 +1,40 @@
+# ctc-dxc: 入口を Terraform 管理の ALB へ戻すための TargetGroupBinding。
+#
+# 背景（要件 v2.3 / SEC-08・NET-04）: 利用者端末がローカルブレイクアウトするため送信元 IP で
+# 絞れない。そこで入口を ALB にしてクライアント証明書（mTLS verify）を必須化する。
+# ALB・ターゲットグループ・トラストストアは Terraform（cn-codespire リポジトリ）が持ち、
+# **ターゲットの登録だけをこのクラスタ側リソースで LBC に任せる**。
+#
+# 【なぜ TargetGroupBinding なのか】以前は ALB の TG を instance モードにして ingress-nginx の
+# NodePort を指していたが、**TG のポート（30080）と実 NodePort（31225/30439）が恒久的に
+# 一致せず**、ターゲットが常に unhealthy で **mTLS にトラフィックが 1 バイトも通っていなかった**
+# （2026-08-20 に実測して撤去）。登録を LBC に任せればこのポート不一致は構造的に起こらない。
+#
+# 【なぜ ARN ではなく名前か】ARN には **AWS アカウント ID が含まれる**。このリポジトリは public で
+# あり、現に 12 桁のアカウント ID を 1 つも含んでいない。CRD は `targetGroupARN` と
+# `targetGroupName` の両方を持ち、必須は `serviceRef` だけなので名前で指す
+# （LBC が DescribeTargetGroups で解決する）。
+#
+# 【層をまたぐ契約】`targetGroupName` は Terraform 側の `tests/alb_entry.tftest.hcl` で
+# 固定されている。**名前を変えるときは両方を同時に変えること**。片側だけ変えると
+# 存在しない TG を指して**無音で 503** になる。
+#
+# 【SG は Terraform が持つ】`networking` を意図的に指定していない。ALB SG → ノード SG の
+# 443 許可は Terraform 側（alb.tf）が明示的に作るので、LBC にも SG を触らせると
+# 同じルールを二重に管理して衝突する。
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: ingress-nginx-alb
+  namespace: ingress-nginx
+  annotations:
+    # ingress-nginx の Service より後に作る（Service が無いと serviceRef が解決できない）。
+    argocd.argoproj.io/sync-wave: '1'
+spec:
+  serviceRef:
+    name: ingress-nginx-controller
+    # ALB → ingress-nginx は HTTPS で再暗号化する（TLS 終端は従来どおり ingress-nginx）。
+    # ALB より後段の経路を現行 NLB 経路と同一に保つのが狙い。
+    port: 443
+  targetGroupName: dev-plat-codespire-tg-nginx
+  targetType: ip

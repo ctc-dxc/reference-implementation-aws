@@ -32,6 +32,10 @@ server:
   ingress:
     annotations:
       cert-manager.io/cluster-issuer: $([[ "${PATH_ROUTING}" == "false" ]] && echo '"letsencrypt-prod"' || echo "")
+      # ctc-dxc: 入口を Terraform 管理 ALB へ切り替えるため DNS の所有権を external-dns から
+      # Terraform へ移す（要件 v2.3 / NET-04）。packages/addons/values.yaml の同アノテーションと
+      # 揃えてある。**片方だけに入れると installer 再実行で消える**ので両方に置く。
+      external-dns.alpha.kubernetes.io/controller: none
     path: /$([[ "${PATH_ROUTING}" == "true" ]] && echo "argocd" || echo "")
 configs:
   cm:
