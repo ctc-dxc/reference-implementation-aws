@@ -226,13 +226,18 @@ metadata:
   namespace: keycloak
   annotations:
     argocd.argoproj.io/sync-wave: "50"
-    # ctc-dxc: sync ごとに再実行させる。Job は spec が immutable なので、
-    # 名前を固定したまま payload を変えても **一度完了した Job は二度と走らない**＝
-    # realm の redirectUris が Git と乖離したまま固定される（:443 → :8443 の切替で実際に踏んだ）。
-    # BeforeHookCreation で直前の Job を削除してから作り直す。
-    # 本体は POST 409 → URL 同期の順で冪等なので、毎 sync 走っても収束する。
-    argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    # ctc-dxc: **Sync hook にはしない。** Job は spec が immutable なので一度完了すると
+    # 二度と走らず、payload の変更（:443 → :8443 等）が realm に届かない。そこで
+    # `argocd.argoproj.io/hook: Sync` + `BeforeHookCreation` で毎 sync 再実行させたく
+    # なるが、**この環境では job が認証で必ず落ちる**（Secret の
+    # KEYCLOAK_ADMIN_PASSWORD が Keycloak 実体のパスワードと乖離している。
+    # 経緯は docs/codespire-idp-access-guide.md「SSO 設定 Job は再実行すると失敗する」）。
+    # hook にすると失敗が毎 sync の失敗になるため、意図して plain な Job に留める。
+    #
+    # 【結果として残る制約】既存 client の URL 変更は **job 経由では反映されない**。
+    # 反映には管理者が実パスワードで一度だけ admin API を叩く必要がある
+    # （手順は docs/codespire-eks-dev-operations.md の「realm の redirect URI を手で揃える」）。
+    # 恒久的には Keycloak 側のパスワードを Secret の値へ戻し、Git を正に復帰させる。
 spec:
   template:
     metadata:
