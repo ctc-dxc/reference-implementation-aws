@@ -2,14 +2,29 @@ controller:
   config:
     hsts: 'false'
   service:
-    type: LoadBalancer
+    # ctc-dxc: 入口を Terraform 管理の ALB（mTLS 必須）へ一本化したので ClusterIP へ落とす。
+    # 要件 v2.3 / REQ-codespire-eks-dev-NET-04（入口の単一化）・SEC-08（mTLS 強制）。
+    #
+    # 【なぜ必要か・2026-08-22 の実測】DNS を ALB へ向けた後も NLB は残っており、
+    # **NLB のホスト名へ Host ヘッダを付けて叩くとクライアント証明書なしで 200 が返った**
+    # （`/` と `/backstage` が 200、`/argocd` が 301）。同じ要求を ALB 経由で出すと 000 になる。
+    # つまり mTLS を強制しない第 2 の経路が開いたままで、SEC-08 は実質未達だった。
+    # NLB のホスト名は直前まで公開 DNS に載っていたため passive DNS から到達可能である。
+    #
+    # 【不可逆である】ClusterIP にすると LBC が NLB を削除する。作り直しても
+    # **ホスト名と IP は変わる**ので元の NLB へは戻せない。入口は ALB だけになる。
+    #
+    # 【ALB 側の経路は切れない】ターゲット登録は manifests/targetgroupbinding.yaml の
+    # TargetGroupBinding が担っており、これは `targetType: ip`＝Pod IP へ直接ルーティングする。
+    # LBC のドキュメントで Service type の要求（NodePort / LoadBalancer）は
+    # **instance モード限定**と明記されているため、ClusterIP でも登録は維持される。
+    # SG も Terraform 側（alb.tf の ALB SG → ノード SG 443 許可）が明示的に持っており、
+    # TargetGroupBinding に `networking` を書いていないので LBC は SG を触らない。
+    type: ClusterIP
     annotations:
       argocd.argoproj.io/sync-wave: '-1' # Adding to ensure service is created before actual deployment
-      service.beta.kubernetes.io/aws-load-balancer-internal: 'false'
-      service.beta.kubernetes.io/aws-load-balancer-name: cnoe
-      service.beta.kubernetes.io/aws-load-balancer-type: external
-      service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
-      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
-    loadBalancerClass: service.k8s.aws/nlb
+      # ctc-dxc: NLB 用のアノテーション（`aws-load-balancer-*`）と `loadBalancerClass` は削除した。
+      # ClusterIP では意味を持たず、`loadBalancerClass` は `type: LoadBalancer` 以外では
+      # API バリデーションに落ちる。
     targetPorts:
       https: 'https'
