@@ -182,6 +182,34 @@ keycloak:
     postgresql:
       image:
         repository: bitnamilegacy/postgresql
+    # ctc-dxc: NETSKOPE-WORKAROUND（暫定・要件 v2.3 / SEC-08）。
+    # 【何を変えるか】Keycloak が発行する **frontend URL に :8443 を持たせる**。
+    #
+    # 【なぜ必要か・2026-08-23 の実測】SecurePC の Netskope は 80/443 の TLS を終端して
+    # 張り直すため、ALB の mTLS にクライアント証明書が届かない。そこで入口を
+    # :8443（Netskope が inspect しない）にしたが、Backstage のログインポップアップは
+    # **discovery document の authorization_endpoint** へ飛ぶ。これは KEYCLOAK_HOSTNAME
+    # 由来で port を持たないため :443 へ飛び、Netskope に落ちて ERR_CONNECTION_CLOSED に
+    # なっていた（discovery を実測して確認）。
+    #
+    # 【なぜ backchannel-dynamic が要るか】hostname を :8443 の固定 URL にすると
+    # token_endpoint 等も :8443 になり **クラスタ内から呼べなくなる**（split-horizon DNS で
+    # ingress-nginx へ向くが Service は 80/443 しか持たない・chart 4.7.0 に extraPorts は無い）。
+    # hostname-backchannel-dynamic=true は「frontend は静的・backchannel は request 由来」に
+    # 分ける公式オプションで、docs の "Set to true if your application accesses Keycloak via a
+    # private network" がまさにこの構成（upstream 実装 HostnameV2ProviderFactory.java で確認）。
+    #
+    # 【上書きが効く理由】KEYCLOAK_HOSTNAME は chart が envFrom（ConfigMap keycloak-env-vars）で
+    # 渡しており、extraEnvVars は explicit env になる。Kubernetes では explicit env が envFrom に
+    # 勝つ（実機の env / envFrom の出所を確認済み）。
+    #
+    # 【撤去条件】Netskope が当ドメインを TLS inspection から除外したら、:8443 を落として
+    # このブロックごと削除する。全箇所は `grep -rn NETSKOPE-WORKAROUND` で列挙できる。
+    extraEnvVars:
+    - name: KEYCLOAK_HOSTNAME
+      value: 'https://{{ if eq .metadata.labels.path_routing "false" }}keycloak.{{ .metadata.annotations.domain }}{{ else }}{{ .metadata.annotations.domain }}{{ end }}:8443/{{ if eq .metadata.labels.path_routing "true" }}keycloak/{{ end }}'
+    - name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC
+      value: 'true'
     httpRelativePath: '/{{ if eq .metadata.labels.path_routing "true" }}keycloak/{{ end }}'
     ingress:
       hostname: '{{ if eq .metadata.labels.path_routing "false" }}keycloak.{{ .metadata.annotations.domain }}{{ else }}{{ .metadata.annotations.domain }}{{ end }}'
