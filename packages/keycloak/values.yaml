@@ -1,7 +1,13 @@
 adminRealm: "cnoe"
 production: true
 usePasswordFiles: false
-proxyHeaders: "forwarded"
+# ctc-dxc: upstream は "forwarded"（RFC 7239 の Forwarded ヘッダ）だったが、
+# 前段の ingress-nginx が送るのは X-Forwarded-* であって Forwarded ヘッダではない。
+# その結果 Keycloak は「非 HTTPS の接続」と判断し、HTTPS 経由でも Cookie に Secure が付かない
+# （実測 2026-08-20: AUTH_SESSION_ID / KC_RESTART に Secure なし・ログに
+#  "Non-secure context detected; cookies are not secured" が継続出力）。
+# xforwarded にすると X-Forwarded-Proto: https を信頼して Secure が付く。
+proxyHeaders: "xforwarded"
 
 global:
   defaultStorageClass: gp3

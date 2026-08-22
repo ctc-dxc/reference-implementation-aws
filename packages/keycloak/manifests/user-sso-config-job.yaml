@@ -477,6 +477,48 @@ spec:
               add_client_scope "argo-workflows" "Argo Workflows"
               get_client_secret "argo-workflows" "ARGO_WORKFLOWS_CLIENT_SECRET"
 
+              # ctc-dxc 追加: 組み込みクライアント account-console の Web Origins を補う。
+              #
+              # 【なぜ必要か（2026-08-20 実測）】realm 作成時に Keycloak が自動生成する
+              # account-console には web_origins のレコードが **1 件も入らない**（DB で確認）。
+              # そのため keycloak-js が待つ
+              #   /realms/cnoe/protocol/openid-connect/login-status-iframe.html/init?client_id=account-console&origin=<origin>
+              # が **403** を返し、SSO 状態 iframe が ready にならず keycloak.init() が解決しない。
+              # 結果としてアカウントコンソールは**ローディングのまま永久に止まる**。
+              # 対照実験: 同じ endpoint・同じ origin で client_id=security-admin-console（web_origins="+"）
+              # は **204** を返す＝差分は Web Origins だけであることを確認済み。
+              #
+              # "+" は「redirect URI から導出する」の意味で、security-admin-console と同じ値に揃える
+              # （固定ドメインを焼き込まないので path-routing / 独自ドメインの両方で機能する）。
+              patch_builtin_client_web_origins() {
+                local client_id_name=$1
+
+                CLIENT_ID=$(keycloak_get "/admin/realms/cnoe/clients" ".[] | select(.clientId == \"${client_id_name}\") | .id")
+                if [ -z "${CLIENT_ID}" ] || [ "${CLIENT_ID}" = "null" ]; then
+                  echo "WARN: ${client_id_name} client not found; skipping Web Origins patch"
+                  return
+                fi
+
+                # 全体表現の PUT が要るので GET してから webOrigins だけ差し替える
+                # （部分 PUT は他フィールドを消すため）。
+                keycloak_get "/admin/realms/cnoe/clients/${CLIENT_ID}" "." \
+                  | jq '.webOrigins = ["+"]' > /tmp/${client_id_name}-patched.json
+
+                HTTP_STATUS=$(curl -sS -w "%{http_code}" -o /tmp/response.txt -H "Content-Type: application/json" \
+                  -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                  -X PUT --data @/tmp/${client_id_name}-patched.json \
+                  ${KEYCLOAK_URL}/admin/realms/cnoe/clients/${CLIENT_ID})
+
+                if [ "$HTTP_STATUS" -ne 204 ] && [ "$HTTP_STATUS" -ne 200 ]; then
+                  echo "Error patching ${client_id_name} Web Origins: HTTP status $HTTP_STATUS"
+                  cat /tmp/response.txt
+                else
+                  echo "${client_id_name} Web Origins set to [+]"
+                fi
+              }
+
+              patch_builtin_client_web_origins "account-console"
+
               echo "Creating ArgoCD session token for backstage"
               ARGOCD_PASSWORD=$(./kubectl -n argocd get secret argocd-initial-admin-secret -o go-template='{{.data.password | base64decode }}')
               
