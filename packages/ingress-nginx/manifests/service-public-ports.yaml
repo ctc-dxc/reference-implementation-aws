@@ -1,0 +1,54 @@
+# ctc-dxc: NETSKOPE-WORKAROUND（暫定・要件 v2.3 / SEC-08 / NET-04）。
+#
+# 【何のための Service か】split-horizon DNS が公開ホスト名を向ける先。
+# クラスタ内から **公開ホスト名 + :8443 で自分自身へ到達できるようにする**ためだけに存在する。
+#
+# 【なぜ必要か・2026-08-23 の実測】SecurePC の Netskope が 80/443 の TLS を終端するため
+# ALB の mTLS が成立せず、入口を :8443 に移した。その結果 OIDC の各 URL も :8443 になるが、
+# ArgoCD は `oidc.config.issuer` から `<issuer>/.well-known/openid-configuration` を
+# **サーバ側で自分で取得する**（Backstage の metadataUrl のように別 URL を渡せない）。
+# split-horizon DNS で公開ホスト名はクラスタ内では ingress-nginx へ向くが、
+# chart 4.7.0 の controller Service は 80/443 しか持たず（`extraPorts` 相当が無い）、
+# :8443 が開いていないと ArgoCD / argo-workflows の SSO が discovery を引けない。
+#
+# 【targetPort を名前で書く理由】controller コンテナは **8443 を admission webhook に
+# 使っている**（`kubectl get deploy -o jsonpath='{...ports}'` で http=80 https=443 webhook=8443）。
+# `targetPort: 8443` と数値で書くと webhook に流れてしまうので、必ず `https`（=443）を名前で指す。
+#
+# 【80/443 も持たせる理由】CoreDNS の rewrite 先をこの Service に差し替えるため、
+# 既存のクラスタ内 :443（および :80）呼び出しを落とさないよう同じ口を維持する。
+#
+# 【撤去条件】Netskope が当ドメインを TLS inspection から除外したら、CoreDNS の rewrite 先を
+# ingress-nginx-controller へ戻し、この Service を削除する（`grep -rn NETSKOPE-WORKAROUND`）。
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingress-nginx-controller-public
+  namespace: ingress-nginx
+  labels:
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/instance: ingress-nginx
+    app.kubernetes.io/component: controller
+  annotations:
+    # controller より先に存在させる（Service だけなので依存は無いが順序を固定する）。
+    argocd.argoproj.io/sync-wave: '-1'
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/instance: ingress-nginx
+    app.kubernetes.io/component: controller
+  ports:
+  - name: http
+    port: 80
+    protocol: TCP
+    targetPort: http
+  - name: https
+    port: 443
+    protocol: TCP
+    targetPort: https
+  # 公開入口が :8443 である間だけ必要な口。targetPort は必ず名前で https を指す。
+  - name: https-public
+    port: 8443
+    protocol: TCP
+    targetPort: https

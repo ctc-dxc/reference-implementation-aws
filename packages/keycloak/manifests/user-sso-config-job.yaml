@@ -226,6 +226,13 @@ metadata:
   namespace: keycloak
   annotations:
     argocd.argoproj.io/sync-wave: "50"
+    # ctc-dxc: sync ごとに再実行させる。Job は spec が immutable なので、
+    # 名前を固定したまま payload を変えても **一度完了した Job は二度と走らない**＝
+    # realm の redirectUris が Git と乖離したまま固定される（:443 → :8443 の切替で実際に踏んだ）。
+    # BeforeHookCreation で直前の Job を削除してから作り直す。
+    # 本体は POST 409 → URL 同期の順で冪等なので、毎 sync 走っても収束する。
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   template:
     metadata:
@@ -369,16 +376,68 @@ spec:
               echo "USER1 ID: ${USER1ID}"
               echo "USER2 ID: ${USER2ID}"
               
+              # ctc-dxc: 既存 client の URL を Git の payload に合わせ直す。
+              #
+              # 【なぜ必要か】上の keycloak_post は **409 を「already exists, continuing...」で
+              # 素通りさせる**ため、client が既にあると payload の変更が一切反映されない。
+              # 公開入口を :8443 へ移した際、realm の redirectUris が旧 :443 のまま残り
+              # 「Invalid parameter: redirect_uri」になる（この非冪等性は upstream から）。
+              #
+              # 【なぜ全置換 PUT にしないか】payload には `secret` が無い。confidential client
+              # （backstage / argo-workflows）を payload そのままで PUT すると
+              # **シークレットを失いうる**。失っても job は後段の get_client_secret で
+              # 新しい値を拾ってしまうため、稼働中の Pod だけが古い値を持つ＝
+              # 「CI は成功したのに SSO だけ黙って壊れる」状態になる。
+              # そこで **現在の表現を取得し、URL 系のキーだけ上書きして PUT** する。
+              sync_client_urls() {
+                local client_name=$1
+                local payload_file=$2
+                local client_id_name=$3
+
+                local cid
+                cid=$(keycloak_get "/admin/realms/cnoe/clients" \
+                  ".[] | select(.clientId == \"${client_id_name}\") | .id") || {
+                  echo "warn: ${client_name} client not found; skip URL sync"
+                  return 0
+                }
+
+                envsubst < ${payload_file} > /tmp/desired-urls.json
+                curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                  "${KEYCLOAK_URL}/admin/realms/cnoe/clients/${cid}" > /tmp/current-client.json
+
+                # URL 系のキーだけを現在の表現へ被せる（null は落とす）。
+                jq -s '.[0] * (.[1]
+                        | {rootUrl, baseUrl, adminUrl, redirectUris, webOrigins}
+                        | with_entries(select(.value != null)))' \
+                  /tmp/current-client.json /tmp/desired-urls.json > /tmp/merged-client.json
+
+                HTTP_STATUS=$(curl -sS -w "%{http_code}" -o /tmp/response.txt \
+                  -H "Content-Type: application/json" \
+                  -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                  -X PUT --data @/tmp/merged-client.json \
+                  ${KEYCLOAK_URL}/admin/realms/cnoe/clients/${cid})
+                if [ "$HTTP_STATUS" -ne 204 ] && [ "$HTTP_STATUS" -ne 200 ]; then
+                  echo "Error syncing ${client_name} client URLs: HTTP status $HTTP_STATUS"
+                  cat /tmp/response.txt
+                else
+                  echo "${client_name} client URLs synced"
+                fi
+              }
+
               # Create client function
               create_client() {
                 local client_name=$1
                 local payload_file=$2
-                
+                local client_id_name=$3
+
                 echo "creating ${client_name} client"
                 keycloak_post "/admin/realms/cnoe/clients" "${payload_file}" "${client_name} client"
+                # ctc-dxc: 新規なら POST 済み・既存なら 409 で素通りしているので、
+                # どちらの場合も URL 系を Git の payload に揃え直す。
+                sync_client_urls "${client_name}" "${payload_file}" "${client_id_name}"
               }
               
-              create_client "ArgoCD" "/var/config/argocd-client-payload.json"
+              create_client "ArgoCD" "/var/config/argocd-client-payload.json" "argocd"
               
               # Add client scope function
               add_client_scope() {
@@ -392,7 +451,7 @@ spec:
               
               add_client_scope "argocd" "ArgoCD"
               
-              create_client "Backstage" "/var/config/backstage-client-payload.json"
+              create_client "Backstage" "/var/config/backstage-client-payload.json" "backstage"
               
               add_client_scope "backstage" "Backstage"
               
@@ -408,7 +467,7 @@ spec:
               
               get_client_secret "backstage" "BACKSTAGE_CLIENT_SECRET"
               
-              create_client "Argo Workflows" "/var/config/argo-client-payload.json"
+              create_client "Argo Workflows" "/var/config/argo-client-payload.json" "argo-workflows"
               
               add_client_scope "argo-workflows" "Argo Workflows"
               get_client_secret "argo-workflows" "ARGO_WORKFLOWS_CLIENT_SECRET"
