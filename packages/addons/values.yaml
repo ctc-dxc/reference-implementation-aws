@@ -235,6 +235,23 @@ keycloak:
         # **4 つの Ingress すべてに付ける**必要がある（どれが TXT ownership の
         # owner になるかは external-dns の処理順で決まるため）。
         external-dns.alpha.kubernetes.io/controller: none
+        # ctc-dxc: Keycloak の応答ヘッダが ingress-nginx の既定 proxy_buffer_size（4k）を
+        # 超えて 502 になるのを防ぐ（2026-08-23 実測）。
+        #
+        # 【症状】SIGN IN を押すと `502 Bad Gateway`。nginx の error log は
+        #   upstream sent too big header while reading response header from upstream
+        #   request: "GET /keycloak/realms/cnoe/protocol/openid-connect/auth?..."
+        # Keycloak 側は ready・restart 0 で、落ちてはいない。
+        #
+        # 【なぜ超えるのか】authorization endpoint の応答は `AUTH_SESSION_ID` /
+        # `KC_STATE_CHECKER` に加えて **`KC_RESTART`（redirect_uri を含む JWT）** を
+        # Set-Cookie で返す。redirect_uri が長いほどヘッダが膨らむ。
+        # 公開入口を `:8443` にして全 URL が長くなったことで 4k を越えた
+        # （それ以前は境界内に収まっていた＝21:51 の token 交換はここを通過している）。
+        #
+        # 【なぜ Ingress 単位か】controller の ConfigMap で全体を広げるより影響範囲が小さい。
+        # Keycloak を ingress-nginx の背後に置く構成で広く知られた必要設定である。
+        nginx.ingress.kubernetes.io/proxy-buffer-size: 16k
       extraTls:
       - hosts:
         - '{{ if eq .metadata.labels.path_routing "false" }}keycloak.{{ .metadata.annotations.domain }}{{ else }}{{ .metadata.annotations.domain }}{{ end }}'
