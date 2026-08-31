@@ -25,7 +25,56 @@ deploymentRuntimeConfig:
       metadata:
         annotations: {}
         labels: {}
-        name: provider-aws
+        # ctc-dxc: SA 名の pin を外す（2026-08-31）。
+        #
+        # 【なぜ】この chart は providers（dynamodb / s3）**全員**に同一の
+        # DeploymentRuntimeConfig を参照させ（templates/providers.yaml の
+        # runtimeConfigRef は無条件）、その config が SA 名を 1 つに固定していた。
+        # 結果、複数の ProviderRevision が同じ SA の ownerReferences を
+        # 奪い合い、**収束しない reconcile ループ**になる。上流ドキュメントが
+        # 明示的に警告している既知の罠である（packages/providers の
+        # "Configuring metadata of runtime resources"）:
+        #   「同じ service account を複数 package に設定するのはよくある誤りで、
+        #     頻繁な reconcile ループと API server 負荷を招く」
+        #
+        # 【実測（本クラスタ・2026-08-19〜08-31 の 12 日間）】
+        #   CRD update 73.8 回/秒（全て 200・resourceVersion は不変＝完全な no-op）
+        #   × EKS 監査ログの customresourcedefinitions は level=RequestResponse
+        #     ＝ 1 イベント 79.57 KB
+        #   → 21.2 GB/時 ＝ 514 GB/日 ＝ 月額 約 $11,900
+        # **エラーも event も出ない**ため 12 日間誰も気づかなかった
+        # （reconcile が success を返すので workqueue の rate limiter も効かない）。
+        #
+        # 【同一クラスタ内の対照】provider-family-aws だけは runtimeConfigRef を
+        # 持たず（default DRC＝SA 名 pin なし）revision 毎の SA を得ており、
+        # ループしていない。上流 issue でも 16/16 の相関が報告されている。
+        #
+        # 【pin されていた理由と、外して良い理由】上流は
+        # cluster/terraform/main.tf で Pod Identity association
+        # （crossplane-provider-aws → service_account: provider-aws）を作る想定で、
+        # 固定名が要る設計だった。**本クラスタは別の Terraform で構築しており
+        # その association は存在しない**（実測: association は external-secrets /
+        # aws-load-balancer-controller / external-dns / cert-manager の 4 件のみ）。
+        # よって固定名は何も担保していない。
+        #
+        # 【将来 Pod Identity を配線する場合】名前を再 pin するのではなく、
+        # 上流推奨の deploymentTemplate.spec.template.spec.serviceAccountName を
+        # 使う（Crossplane が所有権を取らないため競合しない）。
+        #
+        # 【なぜ '""' という奇妙な書き方か】chart の template は
+        # `name: {{ .spec.serviceAccountTemplate.metadata.name }}` と
+        # **クォート無しで値をそのまま埋める**（templates/runtime-config.yaml）。
+        # ここに空文字を書くと出力が `name:` ＝ YAML の null になり、
+        # DeploymentRuntimeConfig CRD の schema（`{"type": "string"}`・nullable 無し）
+        # に弾かれる。よって**値そのものに引用符を含めて** `name: ""` を出力させる。
+        # Crossplane 側は `if sa.Name == ""` で未指定と同一に扱い、revision 名
+        # （provider 毎に異なる）へフォールバックする
+        # （internal/controller/pkg/runtime/runtime_override_options.go
+        #   ServiceAccountWithOptionalName）。
+        #
+        # 参照: crossplane/crossplane#7769（本件と同一機構・OPEN）／#7143 / #5074 /
+        #       #6152 / #5458 / #3540（同じ罠の再発）
+        name: '""'
 
 provider:
   enabled: true
