@@ -411,49 +411,53 @@ argo-workflows:
 # prune を要求し続けるが、syncPolicy.automated に prune が無いため永久に OutOfSync になる
 # （手動 sync でも PRUNE を明示しない限り解消しない）。crossplane は Backstage の
 # app-with-bucket テンプレート（awsblueprints.io の ObjectStorage）が前提にするため残す判断。
-# ctc-dxc: crossplane core を **0 replica に停止**する（暫定・2026-08-31）。
+# ctc-dxc: crossplane core を **再稼働**する（2026-08-31・根本原因の修正後の実測のため）。
 #
-# 【なぜ止めるか — 実測した金額】EKS の監査ログ（`/aws/eks/dev-plat-codespire-eks/cluster`）が
-# **21.4 GB/時 = 514 GB/日**を取り込み続けており、東京の $0.76/GB で **月額 約 $11,900** に達していた。
-# 参考: 4 ノード（m6i.large）の合計が月額 約 $362。**ログが compute の 32 倍**という状態。
-# 2026-08-19 に 27 GB/日 → 516 GB/日 へ跳ね上がり、以後 12 日間ずっと横ばい（約 $4,700 消費済み）。
+# 【経緯】2026-08-19〜08-31 の 12 日間、EKS の監査ログ
+# （`/aws/eks/dev-plat-codespire-eks/cluster`）が **21.2 GB/時 = 514 GB/日**を取り込み続け、
+# 東京の $0.76/GB で **月額 約 $11,900** に達していた（4 ノード合計 約 $362 の 32 倍）。
+# まず core を 0 replica にして出血を止め（PR #11）、次に原因を特定して直した（PR #12）。
+# 本 PR はその修正が効いているかを**実測**するための再稼働である。
 #
-# 【原因 — CloudWatch Logs Insights で確定】5 分間・スキャン 2.18 GB の集計で、
-# `system:serviceaccount:crossplane-system:crossplane` の **`update customresourcedefinitions`** が
-# **21,630 件 / 1,765 MB = 全体の 98.6%** を占めていた。1,765MB ÷ 300 秒 = 5.88 MB/秒 = 21.2 GB/時 で、
-# CloudWatch の IncomingBytes メトリクスと一致する（推定ではない）。
-# 35 個の CRD に対して **毎秒 72 回**の update が飛んでいる。
+# 【原因（PR #12 で修正済み）】`packages/crossplane-aws-upbound/values.yaml` の
+# DeploymentRuntimeConfig が **SA 名を 1 つに固定**し、chart がその DRC を
+# providers（dynamodb / s3）**全員**に参照させていたため、複数の ProviderRevision が
+# 同じ ServiceAccount の ownerReferences を奪い合い、収束しない reconcile ループになっていた。
+# 上流ドキュメントが「よくある誤り」として警告している既知の罠で、少なくとも 7 件の
+# 独立報告がある（crossplane/crossplane#7769〔OPEN・同一機構〕/ #7143 / #6152 / #5961 /
+# #5458 / #5074 / #4552 / #3540）。**上流に code 修正は入っていない**ため、版を上げても直らない。
 #
-# 【この loop は「何も変えていない」】実測:
-#   - CRD の `generation` は 1 のまま（spec は一度も変わっていない）
-#   - CRD の `resourceVersion` は 3 回サンプルして不変（= Kubernetes 側が no-op と判定している）
-#   - ProviderRevision の `resourceVersion` も不変
-#   - 監査イベントの `responseStatus.code` は毎回 200・`userAgent` は `crossplane/v0.0.0`
-# つまり **書き込みは全部空振り**で、費用は EKS の監査ポリシーが `level: RequestResponse`
-# （`requestObject` と `responseObject` の両方を記録）であることから来ている。
-# 1 イベント平均 81.6 KB。**loop 単体でも監査ログ単体でも問題にならず、両者が重なって初めて $11,900/月になる。**
+# 【計測の内訳】5 分間の Logs Insights 集計で
+# `system:serviceaccount:crossplane-system:crossplane` の `update customresourcedefinitions` が
+# **21,839 件（73.8 回/秒）**、1 イベント **79.57 KB**。73.8 × 79.57 KB = 352 MB/分 で、
+# CloudWatch の IncomingBytes（約 340 MB/分）とほぼ一致する＝この 1 動作でほぼ全量を説明できる。
 #
-# 【上流の既知問題】crossplane/crossplane#3425 が同種の症状を報告している
-# （package manager が並行インストールし、その結果を ProviderRevision status の objectRefs に
-#  書くが、並行ゆえ順序が非決定的で毎回 status が変わり reconcile が再エンキューされ続ける）。
-# **ただし本環境の観測とは 1 点合わない**: 上記のとおり ProviderRevision の resourceVersion が
-# 変化していないため、status 変化が引き金という機構までは確認できていない（無条件 requeue の可能性）。
-# **断定はしない。** 恒久対処には上流での確認が必要。
+# 【この loop は「何も変えていない」】実測: CRD の `generation` は 1 のまま／32 CRD に対し
+# `resourceVersion` の distinct は 32 件（＝1 CRD あたり 1 件で不変）／ProviderRevision の
+# `resourceVersion` も 1,518 件の書き込みに対し 1 件のみ／`responseStatus.code` は毎回 200。
+# つまり**書き込みは全部空振り**で、費用は EKS の監査ポリシーが CRD を
+# `level: RequestResponse` で記録することから来ている（`providerrevisions` は `Metadata` で安価）。
+# **loop 単体でも監査ログ単体でも問題にならず、両者が重なって初めて $11,900/月になる。**
+#
+# 【なぜ 12 日間気づかれなかったか】ArgoCD 15/15 Healthy・pod restart 0・cluster 全体 CPU
+# 0.16 vCPU・Warning event 0・エラー 0（reconcile が success を返すので workqueue の
+# rate limiter も backoff しない）。**この種の欠陥は健全性の指標では原理的に検知できず、
+# 量・速度の指標だけが検知できる。** 当 account には CloudWatch alarm が 0 件・SNS topic 0 件・
+# metrics-server 無し＝検知手段が存在しなかった。alarm の整備は別タスク。
 #
 # 【なぜ `enabled: false` にしないのか — それでは止まらない】
 # 親 Application（`addons-appset-pr`）の syncPolicy は **`prune: false`** である。よって
 # `enabled: false` にしても、レンダ結果から ApplicationSet が消えるだけで ArgoCD は
 # **それを削除しない**（prune 無効）。結果 Application も workload も残り、**loop は止まらない**。
-# 「設定を変えたのに何も起きない」典型なので、実際に replica を 0 にする形を採る。
+# 「設定を変えたのに何も起きない」典型なので、replica を明示する形を採る。
 #
-# 【影響 — 機能は失われるが、現に何も使っていない】
-# `kubectl get managed` は **`No resources found`**（Crossplane が管理しているリソースは 0 件）。
-# CNOE リファレンス由来の XRD/Composition（`xobjectstorages.awsblueprints.io`）はあるが claim は無い。
-# CRD・Provider・XRD/Composition はすべて残るので、`replicas: 1` に戻せば元の状態に復帰する。
-# provider の Pod（`provider-aws-s3` 等）は core が作った Deployment としてそのまま残る。
-#
-# 【元に戻すとき】この valuesObject を消す（または replicas: 1）。ただし **loop も戻る**ので、
-# 上流の修正確認、または EKS 監査ログ側の扱いを先に決めること。
+# 【再稼働時に確認すること（未検証）】「SA 競合がループの原因」は上流報告と同一クラスタ内の
+# 対照（provider-family-aws は DRC を持たず revision 毎の SA を得ており、ループしていない）
+# からの推定であり、**本クラスタでの実測はまだ無い**。再稼働後に次を確認する:
+#   1. provider 毎の新しい SA（revision 名）が作られ、SA `provider-aws` の奪い合いが消えること
+#   2. `IncomingBytes` が毎分ベースライン（約 1 MB/分）付近に留まること
+#   3. 高止まりするなら **即 `replicas: 0` へ戻す**（1 分あたり約 $0.26 の露出）
+# 安定を確認できたら、この `valuesObject` は削除して chart 既定（1）に戻してよい。
 crossplane:
   enabled: true
   chartName: crossplane
@@ -463,8 +467,9 @@ crossplane:
   chartRepository: "https://charts.crossplane.io/stable"
   valuesObject:
     # chart の top-level キー（v1.20.0 の values.yaml で確認済み。既定 1）。
-    # rbacManager は監査ログの上位に現れていないため触らない（測定した原因だけを止める）。
-    replicas: 0
+    # PR #12 の SA pin 解除が効いているかを実測するため 1 へ戻す。
+    # **高止まりしたら 0 に戻す**（判断材料は上の「再稼働時に確認すること」）。
+    replicas: 1
   selector:
     matchExpressions:
       - key: environment
