@@ -89,6 +89,49 @@ ingress-nginx:
   releaseName: ingress-nginx
   defaultVersion: "4.7.0"
   chartRepository: "https://kubernetes.github.io/ingress-nginx"
+  # ctc-dxc: 入口の単一障害点（SPOF）を解消する。
+  #
+  # 【何が問題だったか・2026-08-31 実測】controller が 1 replica で node 10.32.92.138
+  # （AZ 1c）だけに載っており、このノードが落ちると全 URL が 503 になる。同ノードは
+  # argocd-server も抱えているため、落ちると「入口」と「調査する道具」を同時に失う。
+  #
+  # 【なぜ PDB を別に書かないか】chart は replicaCount > 1 のときだけ PDB を生成する
+  # （templates/controller-poddisruptionbudget.yaml）。よって 2 に上げると PDB も付いてくる。
+  # ただし minAvailable は「効く値かどうか」が可用性を決めるので既定値任せにせず明示する
+  # （実測: 既存の keycloak の PDB は maxUnavailable=1 で replica が 1 のため
+  #  disruptionsAllowed=1 ＝ 唯一の pod を落とせる＝実質ノーガードだった）。
+  #
+  # 【なぜ hostname は required で zone は preferred か】SPOF 解消の本体は「同一ノードに
+  # 載せない」ことなので hostname は required。zone まで required にすると AZ 障害時に
+  # 生存 AZ へ 2 本目を置けず縮退できなくなるため、そちらは preferred にする。
+  #
+  # 【注意】ラベルは実クラスタの pod から採取した実測値（推測ではない）。selector が空振り
+  # すると anti-affinity は無言で無効になり、2 本が同一ノードに載っても気づけない。
+  valuesObject:
+    controller:
+      replicaCount: 2
+      # PDB: 常に 1 本は残す（2 replica なので disruptionsAllowed=1 が実効的になる）
+      minAvailable: 1
+      affinity:
+        podAntiAffinity:
+          # 必須: 2 本を同一ノードに載せない
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - { key: app.kubernetes.io/name, operator: In, values: ["ingress-nginx"] }
+                  - { key: app.kubernetes.io/instance, operator: In, values: ["ingress-nginx"] }
+                  - { key: app.kubernetes.io/component, operator: In, values: ["controller"] }
+              topologyKey: kubernetes.io/hostname
+          # 推奨: 2 AZ へ分散させる（満たせなくてもスケジュールは止めない）
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - { key: app.kubernetes.io/name, operator: In, values: ["ingress-nginx"] }
+                    - { key: app.kubernetes.io/instance, operator: In, values: ["ingress-nginx"] }
+                    - { key: app.kubernetes.io/component, operator: In, values: ["controller"] }
+                topologyKey: topology.kubernetes.io/zone
   # ctc-dxc: TargetGroupBinding（Terraform 管理 ALB のターゲット登録）を配るために
   # manifests ディレクトリを追加ソースにする。要件 v2.3 / NET-04。
   additionalResources:
