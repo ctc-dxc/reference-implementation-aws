@@ -448,6 +448,64 @@ crossplane-compositions:
         operator: In
         values: ['control-plane']
 
+# ctc-dxc: GPU ノード（dev-plat-codespire-mng-gpu）で nvidia.com/gpu を割り当て可能にする。
+#
+# 【なぜ必要か】AL2023 の EKS 最適化 NVIDIA AMI は **ドライバは同梱するが device plugin は
+# 含まない**（AWS 公式）。plugin が無いとノードの allocatable に nvidia.com/gpu が現れず、
+# **ノードは Ready なのに GPU Pod だけ Pending** という分かりにくい壊れ方をする。
+# Bottlerocket は同梱するため、AMI を替えるとこの Application は不要になる。
+#
+# 【最重要・既定 affinity を必ず上書きする】chart の既定 nodeAffinity は
+# `feature.node.kubernetes.io/pci-10de.present` など **Node Feature Discovery が付ける
+# ラベル**を required で要求する（v0.20.0 の values.yaml で実測）。本クラスタに NFD は
+# **無い**ので、既定のまま入れると DaemonSet は作られるが **Pod が 1 つも起動しない**。
+# それでも Application は Healthy になるため「入れたのに効かない」ことに気づけない。
+# よってノードグループ側が付ける自前ラベル `node-role: gpu` へ差し替える
+# （Helm はリスト値を**マージではなく置換**するので nodeSelectorTerms ごと入れ替わる）。
+#
+# 【tolerations】chart の既定にも nvidia.com/gpu:NoSchedule の toleration はあるが、
+# GPU ノードグループ側の taint と対になる**必須要素**なので上流の既定変更に依存させず明示する
+# （既定を書き換えると CriticalAddonsOnly は落ちるが、こちらは deprecated 扱い）。
+#
+# 【image tag を書かない理由】chart は appVersion をイメージタグに使う。defaultVersion で
+# chart を固定してあるためタグは決定的になる。ここで `v` 接頭辞の有無を推測して書くと
+# ImagePullBackOff になるだけで、固定の実効性は上がらない。
+#
+# 【namespace = kube-system の理由】device plugin は hostPath
+# （/var/lib/kubelet/device-plugins）を要求するノード基盤コンポーネントで、PSA が
+# baseline/restricted の namespace では弾かれる。kube-system は PSA 適用外で、
+# 同じ理由で aws-load-balancer-controller も本ファイルで kube-system に置いている。
+#
+# 【desired_size = 0 の間は Pod ゼロが正常】GPU ノードが存在しないので DaemonSet の
+# desired/current はどちらも 0 になる。異常ではない。
+nvidia-device-plugin:
+  enabled: true
+  chartName: nvidia-device-plugin
+  namespace: kube-system
+  releaseName: nvidia-device-plugin
+  defaultVersion: "0.20.0"
+  chartRepository: "https://nvidia.github.io/k8s-device-plugin"
+  valuesObject:
+    # 既定（NFD 依存）を置換する。ここが空振りすると Pod が 0 のまま無言で終わる。
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: node-role
+                  operator: In
+                  values: ["gpu"]
+    # GPU ノードグループの taint（nvidia.com/gpu=true:NoSchedule）と対。
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+  selector:
+    matchExpressions:
+      - key: environment
+        operator: In
+        values: ['control-plane']
+
 syncPolicy:
   automated:
     selfHeal: true
