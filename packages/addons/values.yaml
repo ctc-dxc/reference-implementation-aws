@@ -345,12 +345,6 @@ backstage:
         value: 'https://{{ if eq .metadata.labels.path_routing "false" }}backstage.{{ .metadata.annotations.domain }}{{ else }}{{ .metadata.annotations.domain }}:8443{{ end }}'
       - name: KEYCLOAK_NAME_METADATA
         value: 'https://{{ if eq .metadata.labels.path_routing "false" }}keycloak.{{ .metadata.annotations.domain }}{{ else }}{{ .metadata.annotations.domain }}:8443/keycloak{{ end }}/realms/cnoe/.well-known/openid-configuration'
-      # ctc-dxc: backstage backend は index.ts:76 の `if (process.env.KEYCLOAK_URL)` で
-      # Keycloak provider の登録を判定する。値は使われず「存在するか」だけを見るフラグで、
-      # metadataUrl は上の KEYCLOAK_NAME_METADATA 経由で app-config から読む。
-      # 未設定だと provider が登録されず、ログイン画面が Guest のみになる（2026-09-02 実測）。
-      - name: KEYCLOAK_URL
-        value: 'https://{{ if eq .metadata.labels.path_routing "false" }}keycloak.{{ .metadata.annotations.domain }}{{ else }}{{ .metadata.annotations.domain }}:8443/keycloak{{ end }}'
       - name: ARGO_WORKFLOWS_URL
         value: 'https://{{ if eq .metadata.labels.path_routing "false" }}argo-workflows.{{ .metadata.annotations.domain }}{{ else }}{{ .metadata.annotations.domain }}:8443/argo-workflows{{ end }}'
       - name: ARGO_CD_URL
