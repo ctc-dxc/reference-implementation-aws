@@ -22,7 +22,7 @@ backstage:
   image:
     registry: 319391036962.dkr.ecr.ap-northeast-1.amazonaws.com
     repository: dev-plat-codespire-backstage
-    tag: 75e22bb
+    tag: 870fe54
     pullPolicy: IfNotPresent
   command: ["node", "packages/backend"]
   extraEnvVarsSecrets:
@@ -47,10 +47,14 @@ backstage:
                   path: k8s-config.yaml
   appConfig:
     app:
-      title: CNOE Backstage
+      # ctc-dxc: ブランド文言。ログイン画面の見出しとブラウザタブに出る。
+      # これはイメージではなく Helm values 側で決まる（コンテナは
+      # --config /app/app-config-from-configmap.yaml しか読まないため）。
+      # ＝ブランド文言の変更に再ビルドは不要で、この 2 行の PR だけで反映できる。
+      title: CodeSpire Developer Platform
       baseUrl: ${BACKSTAGE_FRONTEND_URL}
     organization:
-      name: CNOE
+      name: CodeSpire
     backend:
       baseUrl: ${BACKSTAGE_FRONTEND_URL}
       csp:
