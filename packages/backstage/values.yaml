@@ -9,20 +9,30 @@ ingress:
     secretName: "backstage-server-tls"
 backstage:
   replicas: 1
-  # ctc-dxc: カスタマイズ用に自前ビルドしたイメージへ切り替える。
-  # ソースは ctc-dxc/codespire-backstage（cnoe-io/backstage-app のミラー・private）。
-  # tag はソースの commit SHA を使う（可変タグを使わない＝immutable タグ規約）。
-  # ECR は CMK 暗号化・タグ IMMUTABLE。node role に kms:Decrypt（ViaService=ecr）を付与済み。
+  # ctc-dxc: カスタマイズ検証（2026-09-02）の前に稼働していた本体バージョンへ戻す。
+  # backstage.json 1.28.4（fork の commit 135c0cb2 相当）。
   #
-  # 【版差の注意】このイメージは backstage.json v1.49.4 で、旧 ghcr イメージ
-  # （2024-10 ビルド・base ~v1.28）から 21 マイナー分の飛躍がある。DB migration は revert 不可のため、
-  # kind に dev のスキーマ＋knex_migrations を復元して事前検証した
-  # （catalog 30→38・auth 7→12 が適用され error なし・pod Ready）。
-  # 未検証: 実 Keycloak ログイン・実 GitHub App 経由の scaffolder・ECR からの実 pull（CMK 復号）。
+  # 【このイメージの出所】上流 ghcr.io/cnoe-io/backstage-app:135c0cb2... を
+  # そのまま ECR へ再登録したもので、**自前ビルドではない**。
+  # digest は上流と同一（sha256:f96950b9eae5...）＝稼働していた成果物とバイト単位で同じ。
+  #
+  # 自前ビルドにしなかった理由: **commit 135c0cb2 は現在ビルドできない**。
+  # 当該コミットの yarn.lock に ts-json-schema-generator のエントリが無く、今日 yarn が
+  # 新しく解決すると 2.9.0（node>=22 が必要）になるが、同コミットの Dockerfile は node 18 を
+  # 固定しているため install が engines チェックで失敗する（2026-09-02 実測）。
+  # node を 22 へ上げる等の改変でビルドは通る可能性があるが、それは「稼働していたものと
+  # 同じイメージ」ではなくなるため、復旧目的では上流成果物の再登録を選んだ。
+  # ＝**git commit を固定してもビルドの再現性は保証されない**（方針文書 §5-3 に記録）。
+  #
+  # tag に -upstream を付けているのは出所を明示するため（他の tag は fork の commit SHA で
+  # 自前ビルド）。ECR は CMK 暗号化・タグ IMMUTABLE。
+  #
+  # 本体の版上げは別途判断する（1.54.6 への bump は backend のビルドが通らない。
+  # 詳細は docs/codespire-backstage-customization-policy.md §5-3）。
   image:
     registry: 319391036962.dkr.ecr.ap-northeast-1.amazonaws.com
     repository: dev-plat-codespire-backstage
-    tag: 870fe54
+    tag: 135c0cb-upstream
     pullPolicy: IfNotPresent
   command: ["node", "packages/backend"]
   extraEnvVarsSecrets:
@@ -47,14 +57,10 @@ backstage:
                   path: k8s-config.yaml
   appConfig:
     app:
-      # ctc-dxc: ブランド文言。ログイン画面の見出しとブラウザタブに出る。
-      # これはイメージではなく Helm values 側で決まる（コンテナは
-      # --config /app/app-config-from-configmap.yaml しか読まないため）。
-      # ＝ブランド文言の変更に再ビルドは不要で、この 2 行の PR だけで反映できる。
-      title: CodeSpire Developer Platform
+      title: CNOE Backstage
       baseUrl: ${BACKSTAGE_FRONTEND_URL}
     organization:
-      name: CodeSpire
+      name: CNOE
     backend:
       baseUrl: ${BACKSTAGE_FRONTEND_URL}
       csp:
