@@ -9,10 +9,20 @@ ingress:
     secretName: "backstage-server-tls"
 backstage:
   replicas: 1
+  # ctc-dxc: カスタマイズ用に自前ビルドしたイメージへ切り替える。
+  # ソースは ctc-dxc/codespire-backstage（cnoe-io/backstage-app のミラー・private）。
+  # tag はソースの commit SHA を使う（可変タグを使わない＝immutable タグ規約）。
+  # ECR は CMK 暗号化・タグ IMMUTABLE。node role に kms:Decrypt（ViaService=ecr）を付与済み。
+  #
+  # 【版差の注意】このイメージは backstage.json v1.49.4 で、旧 ghcr イメージ
+  # （2024-10 ビルド・base ~v1.28）から 21 マイナー分の飛躍がある。DB migration は revert 不可のため、
+  # kind に dev のスキーマ＋knex_migrations を復元して事前検証した
+  # （catalog 30→38・auth 7→12 が適用され error なし・pod Ready）。
+  # 未検証: 実 Keycloak ログイン・実 GitHub App 経由の scaffolder・ECR からの実 pull（CMK 復号）。
   image:
-    registry: ghcr.io
-    repository: cnoe-io/backstage-app
-    tag: 135c0cb26f3e004a27a11edb6a4779035aff9805
+    registry: 319391036962.dkr.ecr.ap-northeast-1.amazonaws.com
+    repository: dev-plat-codespire-backstage
+    tag: 6a5087c
     pullPolicy: IfNotPresent
   command: ["node", "packages/backend"]
   extraEnvVarsSecrets:
