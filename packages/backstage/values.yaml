@@ -22,7 +22,7 @@ backstage:
   image:
     registry: 319391036962.dkr.ecr.ap-northeast-1.amazonaws.com
     repository: dev-plat-codespire-backstage
-    tag: 6a5087c
+    tag: 75e22bb
     pullPolicy: IfNotPresent
   command: ["node", "packages/backend"]
   extraEnvVarsSecrets:
