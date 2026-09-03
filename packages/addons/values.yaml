@@ -563,6 +563,17 @@ syncPolicy:
     selfHeal: true
     allowEmpty: true
     prune: false
+  # ctc-dxc: chart 既定の無限リトライ（limit: -1）を上書きする。`field is immutable` のように
+  # リトライしても成功しないエラーで operation が終わらず、`.operation` が消えないため
+  # **新しい revision で sync を張り直せなくなる**（2026-08-23 実測: keycloak app が 62137e7 に
+  # 固定され 1468 回リトライ・11 日間 revert が適用されなかった。UI は Synced のまま）。
+  # 有限値なら約 2.5 分で Failed になり、次の sync が最新 revision を読み直せる。
+  retry:
+    limit: 5
+    backoff:
+      duration: 5s
+      factor: 2
+      maxDuration: 10m
 
 syncPolicyAppSet:
   preserveResourcesOnDeletion: false # Set to false so that cleanup script removes all the deployed resources
