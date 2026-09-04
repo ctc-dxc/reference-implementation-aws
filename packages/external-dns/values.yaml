@@ -8,3 +8,8 @@ policy: upsert-only
 extraArgs:
   - --aws-zone-type=public
   - --aws-zones-cache-duration=1h
+  # dev ゾーンの DNS は Terraform が所有する（alb.tf の alb_apex / alb_wildcard）。
+  # 2026-09-03、host を共有する Ingress が 1 つ除外漏れしたため external-dns が
+  # apex の ALB Alias を DELETE し ClusterIP を CREATE、共有ホスト配下の全 6 アプリが停止した。
+  # Ingress 毎の `controller: none` は付け忘れで破れるので、ドメイン単位で所有境界を宣言する。
+  - --exclude-domains=dev.codespire.ctcnative.com
