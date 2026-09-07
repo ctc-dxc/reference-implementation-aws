@@ -1,5 +1,11 @@
 # AWS Reference Implementation
 
+> [!IMPORTANT]
+> **このリポジトリは 2026-09-07 に運用を終了した（read-only）。**
+> SoT は [ctc-dxc/reference-implementation-aws-private](https://github.com/ctc-dxc/reference-implementation-aws-private)
+> へ移行済みで、ArgoCD の 27 source と Backstage の catalog はそちらを参照している。
+> 過去の PR 19 件は移行先の `docs/pr-archive/` に書き出してある。
+
 This project contains an Internal Developer Platform (IDP) reference implementation for AWS. This project can bring up an IDP on EKS with all the tools configured and ready to use in production. It will install addons on an EKS cluster as Argo CD apps using GitOps Bridge App of ApplicationSets pattern. Check out the [Getting Started](#getting-started) guide for installing this solution on an EKS cluster.
 
 > [!NOTE]
