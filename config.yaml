@@ -4,7 +4,10 @@
 
 # Details of your repository fork
 repo:
-  url: "https://github.com/ctc-dxc/reference-implementation-aws" # ctc-dxc org 内の fork
+  # 2026-09-07: 本リポジトリは運用終了。SoT は -private へ移行済み。
+  # ここを直す理由: create-config-secrets.sh が config.yaml を Secrets Manager へ
+  # 同期するため、古い clone から再実行されると切替が巻き戻る。
+  url: "https://github.com/ctc-dxc/reference-implementation-aws-private" # 移行先（private）
   revision: "HEAD" # Argo CD Apps が参照するブランチ／タグ
   basepath: "packages" # addon 構成の格納ディレクトリ
 
